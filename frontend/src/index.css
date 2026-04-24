@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 42 38% 95%;
+    --foreground: 210 32% 14%;
+    --card: 0 0% 100%;
+    --card-foreground: 210 32% 14%;
+    --primary: 174 43% 33%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 35 36% 92%;
+    --secondary-foreground: 210 28% 20%;
+    --muted: 38 30% 89%;
+    --muted-foreground: 210 14% 42%;
+    --accent: 174 32% 91%;
+    --accent-foreground: 174 43% 26%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 36 25% 82%;
+    --input: 36 25% 82%;
+    --ring: 174 43% 33%;
+    --radius: 1.5rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at top left, rgba(45, 131, 120, 0.12), transparent 26%),
+      radial-gradient(circle at 85% 15%, rgba(240, 180, 91, 0.12), transparent 20%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(247, 243, 236, 0.92));
+    font-family: "Bahnschrift", "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+
+  button {
+    @apply outline-none;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: "JetBrains Mono", Consolas, monospace;
+  }
+}
