@@ -178,10 +178,13 @@ class NodeRegistrationRequest(BaseModel):
 
 
 class AgentCommandBundle(BaseModel):
+    github_clone_commands: str
     bootstrap_script: str
     run_command: str
     systemd_unit: str
     systemd_enable_commands: str
+    docker_build_command: str
+    docker_compose_up_command: str
 
 
 class NodeRegistrationResponse(BaseModel):

@@ -8,6 +8,7 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import PurePosixPath
 
 import docker
 import psutil
@@ -46,6 +47,8 @@ DEFAULT_NODE_TOKENS = {
     "node-b": "token-node-b-demo",
     "node-c": "token-node-c-demo",
 }
+
+DEFAULT_AGENT_REPO_URL = "https://github.com/windseeker302/HBK-panel.git"
 
 
 def load_node_tokens() -> dict[str, str]:
@@ -116,6 +119,11 @@ class TaskRecord:
 
 class LocalProbeService:
     """采集本机 CPU、内存和容器状态，供 Agent 推送到中心节点。"""
+
+    def __init__(self) -> None:
+        procfs_root = os.getenv("HBK_PROCFS_ROOT", "").strip()
+        if procfs_root and hasattr(psutil, "PROCFS_PATH"):
+            psutil.PROCFS_PATH = procfs_root
 
     def collect_snapshot(self) -> tuple[ResourceMetrics, bool, str | None, list[ContainerInfo]]:
         metrics = self.collect_metrics()
@@ -229,6 +237,7 @@ class ClusterCenterService:
 
     def __init__(self) -> None:
         self.require_tls = os.getenv("HBK_REQUIRE_TLS", "false").lower() == "true"
+        self.agent_repo_url = os.getenv("HBK_AGENT_REPO_URL", DEFAULT_AGENT_REPO_URL)
         now = datetime.now(UTC)
         self._registered_nodes: dict[str, RegisteredNode] = {
             node_id: RegisteredNode(
@@ -280,6 +289,7 @@ class ClusterCenterService:
             center_url=center_url.rstrip("/"),
             install_path=payload.install_path.rstrip("/"),
             node=registered,
+            repo_url=self.agent_repo_url,
         )
         return NodeRegistrationResponse(
             node_id=registered.node_id,
@@ -542,20 +552,57 @@ class ClusterCenterService:
         center_url: str,
         install_path: str,
         node: RegisteredNode,
+        repo_url: str,
     ) -> AgentCommandBundle:
         backend_path = f"{install_path}/backend"
+        install_parent = PurePosixPath(install_path).parent.as_posix()
         service_name = f"hbk-agent-{node.node_id}"
         escaped_name = node.node_name.replace('"', '\\"')
         address_expression = '${HBK_NODE_ADDRESS:-$(hostname -I | awk \'{print $1}\')}'
+        default_node_address = node.address_hint or "127.0.0.1"
+        agent_image = f"hbk-agent:{node.node_id}"
+
+        github_clone_commands = "\n".join(
+            [
+                f'mkdir -p "{install_parent}"',
+                (
+                    f'if [ -d "{install_path}/.git" ]; then '
+                    f'cd "{install_path}" && git pull --ff-only; '
+                    f'else git clone "{repo_url}" "{install_path}"; fi'
+                ),
+            ]
+        )
 
         bootstrap_script = "\n".join(
             [
                 "sudo dnf install -y python3.11 git",
-                f"mkdir -p {install_path}",
+                github_clone_commands,
                 f"cd {backend_path}",
                 "python3.11 -m venv .venv",
                 "source .venv/bin/activate",
                 "pip install -r requirements.txt",
+            ]
+        )
+
+        docker_build_command = "\n".join(
+            [
+                "sudo dnf install -y docker docker-compose-plugin",
+                f'cd "{install_path}"',
+                f'docker build -f Dockerfile.agent -t "{agent_image}" .',
+            ]
+        )
+
+        docker_compose_up_command = "\n".join(
+            [
+                f'cd "{install_path}"',
+                f'HBK_AGENT_IMAGE="{agent_image}" \\',
+                f'HBK_AGENT_CONTAINER_NAME="{service_name}" \\',
+                f'HBK_CENTER_URL="{center_url}" \\',
+                f'HBK_NODE_ID="{node.node_id}" \\',
+                f'HBK_NODE_TOKEN="{node.token}" \\',
+                f'HBK_NODE_NAME="{escaped_name}" \\',
+                f'HBK_NODE_ADDRESS="${{HBK_NODE_ADDRESS:-{default_node_address}}}" \\',
+                "docker compose -f docker-compose.agent.yml up -d",
             ]
         )
 
@@ -611,10 +658,13 @@ class ClusterCenterService:
         )
 
         return AgentCommandBundle(
+            github_clone_commands=github_clone_commands,
             bootstrap_script=bootstrap_script,
             run_command=run_command,
             systemd_unit=systemd_unit,
             systemd_enable_commands=systemd_enable_commands,
+            docker_build_command=docker_build_command,
+            docker_compose_up_command=docker_compose_up_command,
         )
 
     def _pending_task_count(self, node_id: str) -> int:

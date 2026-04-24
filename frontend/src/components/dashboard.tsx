@@ -41,6 +41,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+const DEFAULT_AGENT_REPO_URL = (import.meta.env.VITE_AGENT_REPO_URL ?? "https://github.com/windseeker302/HBK-panel.git").trim();
+
 function formatBytes(value: number) {
   if (value <= 0) {
     return "0 B";
@@ -112,6 +114,32 @@ function summaryBadges(containerData: NodeContainersResponse | null) {
   ];
 }
 
+function normalizeInstallPath(value: string) {
+  const trimmed = value.trim();
+  return trimmed || "/opt/hbk-agent/HBK-Panel";
+}
+
+function getInstallParentPath(value: string) {
+  const normalized = normalizeInstallPath(value).replace(/\/+$/, "");
+  const index = normalized.lastIndexOf("/");
+  if (index > 0) {
+    return normalized.slice(0, index);
+  }
+  if (index === 0) {
+    return "/";
+  }
+  return ".";
+}
+
+function buildGithubCloneCommands(installPath: string) {
+  const normalized = normalizeInstallPath(installPath);
+  const parent = getInstallParentPath(normalized);
+  return [
+    `mkdir -p "${parent}"`,
+    `if [ -d "${normalized}/.git" ]; then cd "${normalized}" && git pull --ff-only; else git clone "${DEFAULT_AGENT_REPO_URL}" "${normalized}"; fi`,
+  ].join("\n");
+}
+
 interface CommandBlockProps {
   title: string;
   value: string;
@@ -137,6 +165,8 @@ function CommandBlock({ title, value, onCopy }: CommandBlockProps) {
   );
 }
 
+type InstallPlan = "python" | "docker";
+
 export function Dashboard() {
   const [nodes, setNodes] = useState<NodeListItem[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState("");
@@ -154,6 +184,7 @@ export function Dashboard() {
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [registrationError, setRegistrationError] = useState("");
   const [registrationResult, setRegistrationResult] = useState<NodeRegistrationResponse | null>(null);
+  const [selectedInstallPlan, setSelectedInstallPlan] = useState<InstallPlan>("python");
   const [copyMessage, setCopyMessage] = useState("");
   const [isPending, startTransition] = useTransition();
   const [registerForm, setRegisterForm] = useState({
@@ -165,6 +196,9 @@ export function Dashboard() {
 
   const currentNode = nodes.find((item) => item.node_id === selectedNodeId) ?? null;
   const totalPending = nodes.reduce((sum, item) => sum + item.pending_tasks, 0);
+  const githubCloneCommands = registrationResult
+    ? registrationResult.commands.github_clone_commands?.trim() || buildGithubCloneCommands(registerForm.installPath)
+    : "";
 
   const loadNodes = async () => {
     setPageError("");
@@ -326,6 +360,7 @@ export function Dashboard() {
         install_path: registerForm.installPath.trim(),
       });
       setRegistrationResult(result);
+      setSelectedInstallPlan("python");
       setActionMessage(`节点 ${result.node_name} 已注册，等待 Agent 首次心跳。`);
       setSelectedNodeId(result.node_id);
       await loadNodes();
@@ -346,6 +381,7 @@ export function Dashboard() {
     setShowRegisterModal(false);
     setRegistrationError("");
     setRegistrationResult(null);
+    setSelectedInstallPlan("python");
     setCopyMessage("");
     setRegisterForm({
       nodeId: "",
@@ -862,7 +898,8 @@ export function Dashboard() {
             ) : (
               <div className="space-y-5 overflow-y-auto p-6">
                 <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 p-4 text-sm leading-7 text-emerald-700">
-                  节点 {registrationResult.node_name} 已注册成功。请立即保存 token，并在目标主机执行下面的 CentOS 启动命令。
+                  节点 {registrationResult.node_name} 已注册成功。当前提供两套部署方式：
+                  “方案 1：Python + systemd”和“方案 2：Docker Compose”。任选一种执行即可。
                 </div>
 
                 {copyMessage ? <div className="text-sm text-primary">{copyMessage}</div> : null}
@@ -879,14 +916,78 @@ export function Dashboard() {
                 </div>
 
                 <CommandBlock title="节点 Token" value={registrationResult.token} onCopy={handleCopy} />
-                <CommandBlock title="CentOS 初始化命令" value={registrationResult.commands.bootstrap_script} onCopy={handleCopy} />
-                <CommandBlock title="Agent 启动命令" value={registrationResult.commands.run_command} onCopy={handleCopy} />
-                <CommandBlock title="systemd 单元文件" value={registrationResult.commands.systemd_unit} onCopy={handleCopy} />
-                <CommandBlock
-                  title="systemd 启用命令"
-                  value={registrationResult.commands.systemd_enable_commands}
-                  onCopy={handleCopy}
-                />
+
+                <div className="rounded-[24px] border border-border/70 bg-white/70 p-4">
+                  <div className="text-base font-semibold text-slate-900">部署方案切换</div>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    每次只展示一套部署命令，避免两套方案混在一起。可以随时切换查看。
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Button
+                      variant={selectedInstallPlan === "python" ? "default" : "outline"}
+                      onClick={() => setSelectedInstallPlan("python")}
+                    >
+                      方案 1：Python + systemd
+                    </Button>
+                    <Button
+                      variant={selectedInstallPlan === "docker" ? "default" : "outline"}
+                      onClick={() => setSelectedInstallPlan("docker")}
+                    >
+                      方案 2：Docker Compose
+                    </Button>
+                  </div>
+                </div>
+
+                {selectedInstallPlan === "python" ? (
+                  <>
+                    <div className="rounded-[24px] border border-border/70 bg-white/70 p-4">
+                      <div className="text-base font-semibold text-slate-900">方案 1：Python + systemd</div>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        适合直接把 Agent 作为宿主机进程运行，命令顺序建议为：GitHub 拉取 → 初始化依赖 → 启动 Agent 或写入 systemd。
+                      </p>
+                    </div>
+
+                    <CommandBlock
+                      title="GitHub 拉取命令"
+                      value={githubCloneCommands}
+                      onCopy={handleCopy}
+                    />
+                    <CommandBlock title="CentOS 初始化命令" value={registrationResult.commands.bootstrap_script} onCopy={handleCopy} />
+                    <CommandBlock title="Agent 启动命令" value={registrationResult.commands.run_command} onCopy={handleCopy} />
+                    <CommandBlock title="systemd 单元文件" value={registrationResult.commands.systemd_unit} onCopy={handleCopy} />
+                    <CommandBlock
+                      title="systemd 启用命令"
+                      value={registrationResult.commands.systemd_enable_commands}
+                      onCopy={handleCopy}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-[24px] border border-border/70 bg-white/70 p-4">
+                      <div className="text-base font-semibold text-slate-900">方案 2：Docker Compose</div>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        `Dockerfile.agent` 和 `docker-compose.agent.yml` 已经放在仓库里。拉取代码后，
+                        只需要执行 `docker build` 和 `docker compose up` 即可启动。
+                      </p>
+                    </div>
+
+                    <CommandBlock
+                      title="GitHub 拉取命令"
+                      value={githubCloneCommands}
+                      onCopy={handleCopy}
+                    />
+                    <CommandBlock
+                      title="Docker 构建命令"
+                      value={registrationResult.commands.docker_build_command}
+                      onCopy={handleCopy}
+                    />
+                    <CommandBlock
+                      title="Docker Compose 启动命令"
+                      value={registrationResult.commands.docker_compose_up_command}
+                      onCopy={handleCopy}
+                    />
+                  </>
+                )}
 
                 <div className="flex justify-end gap-3">
                   <Button variant="outline" onClick={resetRegisterModal}>

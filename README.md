@@ -55,7 +55,8 @@ HBK-Panel/
 1. 新增节点
    - 输入 `node_id`、节点名称、地址提示和安装目录
    - 调用 `POST /api/center/nodes/register`
-   - 返回 token、CentOS 初始化命令、Agent 启动命令和 `systemd` 模板
+   - 返回 token、GitHub 拉取命令、CentOS 初始化命令、Agent 启动命令、`systemd` 模板，以及 Docker 方案的 `docker build` / `docker compose up` 命令
+   - `Dockerfile.agent` 和 `docker-compose.agent.yml` 直接放在仓库根目录，不需要在目标主机手工创建
 
 2. 清理状态
    - 调用 `POST /api/center/nodes/{node_id}/clear-state`

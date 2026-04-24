@@ -105,10 +105,13 @@ export interface NodeRegistrationRequest {
 }
 
 export interface AgentCommandBundle {
+  github_clone_commands?: string;
   bootstrap_script: string;
   run_command: string;
   systemd_unit: string;
   systemd_enable_commands: string;
+  docker_build_command: string;
+  docker_compose_up_command: string;
 }
 
 export interface NodeRegistrationResponse {

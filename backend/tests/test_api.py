@@ -102,8 +102,15 @@ def test_register_node_returns_token_and_commands() -> None:
     payload = response.json()
     assert payload["node_id"] == "centos-prod-01"
     assert payload["token"]
+    assert 'git clone "https://github.com/windseeker302/HBK-panel.git"' in payload["commands"]["github_clone_commands"]
+    assert 'cd "/opt/hbk-agent/HBK-Panel" && git pull --ff-only' in payload["commands"]["github_clone_commands"]
     assert "demo_agent.py" in payload["commands"]["run_command"]
+    assert payload["commands"]["github_clone_commands"] in payload["commands"]["bootstrap_script"]
     assert "systemctl enable --now hbk-agent-centos-prod-01" in payload["commands"]["systemd_enable_commands"]
+    assert 'docker build -f Dockerfile.agent -t "hbk-agent:centos-prod-01" .' in payload["commands"]["docker_build_command"]
+    assert 'HBK_AGENT_IMAGE="hbk-agent:centos-prod-01"' in payload["commands"]["docker_compose_up_command"]
+    assert 'HBK_NODE_ADDRESS="${HBK_NODE_ADDRESS:-10.20.30.40}"' in payload["commands"]["docker_compose_up_command"]
+    assert "docker compose -f docker-compose.agent.yml up -d" in payload["commands"]["docker_compose_up_command"]
 
 
 def test_duplicate_registration_returns_conflict() -> None:

@@ -1,0 +1,26 @@
+services:
+  hbk-agent:
+    image: ${HBK_AGENT_IMAGE:-hbk-agent:latest}
+    container_name: ${HBK_AGENT_CONTAINER_NAME:-hbk-agent}
+    restart: always
+    network_mode: host
+    pid: host
+    working_dir: /app/backend
+    environment:
+      HBK_PROCFS_ROOT: /hostfs/proc
+    volumes:
+      - /:/hostfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - /bin/sh
+      - -lc
+      - >
+          python scripts/demo_agent.py
+          --center-url "${HBK_CENTER_URL}"
+          --node-id "${HBK_NODE_ID}"
+          --token "${HBK_NODE_TOKEN}"
+          --node-name "${HBK_NODE_NAME}"
+          --address "${HBK_NODE_ADDRESS:-127.0.0.1}"
+          --interval 12
+          --offline-after 35
+          --auto-ack
