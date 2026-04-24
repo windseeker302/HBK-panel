@@ -20,6 +20,7 @@
 
 ```text
 HBK-Panel/
+├─ deploy/nginx/        # Docker 前端反代配置
 ├─ backend/
 │  ├─ app/
 │  │  ├─ api/          # center / agent 接口
@@ -57,6 +58,7 @@ HBK-Panel/
    - 调用 `POST /api/center/nodes/register`
    - 返回 token、GitHub 拉取命令、CentOS 初始化命令、Agent 启动命令、`systemd` 模板，以及 Docker 方案的 `docker build` / `docker compose up` 命令
    - `Dockerfile.agent` 和 `docker-compose.agent.yml` 直接放在仓库根目录，不需要在目标主机手工创建
+   - Agent 安装命令只使用 `backend/requirements-agent.txt`，不会额外安装中心端 FastAPI、Uvicorn 和测试依赖
 
 2. 清理状态
    - 调用 `POST /api/center/nodes/{node_id}/clear-state`
@@ -69,6 +71,58 @@ HBK-Panel/
    - 从中心注册表移除节点并立即废掉 token
    - 之后该 Agent 再发心跳会直接返回 `401`
    - 如果该节点来自启动配置，中心重启后且配置未改，它仍会重新出现
+
+## 中心端 Docker 部署
+
+当前仓库除了 `Dockerfile.agent` / `docker-compose.agent.yml` 之外，又补了一套中心端部署文件：
+
+- `Dockerfile.server`：构建 FastAPI 中心节点镜像
+- `Dockerfile.frontend`：构建 React 前端并用 Nginx 托管
+- `docker-compose.server.yml`：一条命令启动中心端前后端
+- `deploy/nginx/hbk-panel.conf`：前端静态资源和 `/api` 反向代理配置
+- `.env.server.example`：中心端部署环境变量示例
+
+推荐在服务器上这样启动：
+
+```bash
+git clone https://github.com/windseeker302/HBK-panel.git
+cd HBK-Panel
+cp .env.server.example .env
+```
+
+然后编辑 `.env`，至少改这两个值：
+
+- `HBK_PUBLIC_CENTER_URL`
+  - 填 Agent 真正可访问到的中心地址
+  - 例如 `http://10.20.30.40`
+  - 如果你把 `HBK_SERVER_PORT` 改成了 `8080`，这里也要写成 `http://10.20.30.40:8080`
+- `HBK_SERVER_PORT`
+  - 前端和 `/api` 对外暴露的端口，默认 `80`
+
+启动命令：
+
+```bash
+docker compose -f docker-compose.server.yml up -d --build
+```
+
+启动后访问：
+
+- 前端：`http://<你的服务器IP或域名>`
+- 后端健康检查：`http://<你的服务器IP或域名>/api/health`
+
+常用排查命令：
+
+```bash
+docker compose -f docker-compose.server.yml ps
+docker compose -f docker-compose.server.yml logs -f backend
+docker compose -f docker-compose.server.yml logs -f frontend
+```
+
+说明：
+
+- 这套中心端 Docker 部署把前端和后端放到同一个入口上，前端页面访问 `/api/*` 时由 Nginx 反代到 FastAPI。
+- 因为 Agent 也访问同一个 `/api/agent/*`，所以 `HBK_PUBLIC_CENTER_URL` 一般应该写成前端对外入口地址，而不是容器内部的 `backend:8000`。
+- 如果你通过 HTTPS 反向代理暴露这个面板，建议同时设置 `HBK_REQUIRE_TLS=true`。
 
 ## 最简启动说明
 
@@ -173,3 +227,4 @@ npm run build
 - 当前中心节点使用内存态注册表，适合轻量示例和本地联调
 - 生产环境建议启用 `HBK_REQUIRE_TLS=true` 并将服务置于 HTTPS 入口后
 - 如节点未安装 Docker，Agent 会把容器运行时不可用原因一并上报给中心
+- 当前运行时注册的节点和 token 只保存在内存里，中心容器重启后会丢失；如果要保留固定节点，请在启动前配置 `HBK_NODE_TOKENS_JSON`

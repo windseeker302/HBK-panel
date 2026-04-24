@@ -3,9 +3,14 @@ FROM python:3.11-slim
 WORKDIR /app/backend
 ENV PYTHONUNBUFFERED=1
 
-COPY backend/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+COPY backend/requirements-agent.txt /tmp/requirements-agent.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-agent.txt
 
-COPY backend /app/backend
+RUN mkdir -p /app/backend/app/services /app/backend/scripts
+COPY backend/app/__init__.py /app/backend/app/__init__.py
+COPY backend/app/models /app/backend/app/models
+COPY backend/app/services/__init__.py /app/backend/app/services/__init__.py
+COPY backend/app/services/probe.py /app/backend/app/services/probe.py
+COPY backend/scripts /app/backend/scripts
 
 CMD ["python", "scripts/demo_agent.py", "--help"]

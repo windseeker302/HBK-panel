@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, Depends, Request, status
 
 from app.api.dependencies import get_cluster_center_service
@@ -19,13 +21,28 @@ from app.services.monitoring import ClusterCenterService
 router = APIRouter(prefix="/api/center", tags=["center"])
 
 
+def resolve_center_url(request: Request, override_url: str | None) -> str:
+    if override_url and override_url.strip():
+        return override_url.strip().rstrip("/")
+
+    configured_url = os.getenv("HBK_PUBLIC_CENTER_URL", "").strip()
+    if configured_url:
+        return configured_url.rstrip("/")
+
+    return str(request.base_url).rstrip("/")
+
+
 @router.post("/nodes/register", response_model=NodeRegistrationResponse, status_code=status.HTTP_201_CREATED)
 def register_node(
     payload: NodeRegistrationRequest,
     request: Request,
     service: ClusterCenterService = Depends(get_cluster_center_service),
 ) -> NodeRegistrationResponse:
-    return service.register_node(payload=payload, center_url=str(request.base_url))
+    center_url = resolve_center_url(
+        request=request,
+        override_url=str(payload.center_url) if payload.center_url else None,
+    )
+    return service.register_node(payload=payload, center_url=center_url)
 
 
 @router.get("/nodes", response_model=NodeListResponse)

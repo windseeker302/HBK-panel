@@ -15,7 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from app.models.schemas import AgentHeartbeatRequest, AgentTaskAckRequest, ProbeInitiator, TaskStatus
-from app.services.monitoring import LocalProbeService
+from app.services.probe import LocalProbeService
 
 
 class ClusterAgentClient:

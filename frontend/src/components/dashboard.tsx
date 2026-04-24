@@ -192,6 +192,7 @@ export function Dashboard() {
     nodeName: "",
     addressHint: "",
     installPath: "/opt/hbk-agent/HBK-Panel",
+    centerUrl: "",
   });
 
   const currentNode = nodes.find((item) => item.node_id === selectedNodeId) ?? null;
@@ -199,6 +200,9 @@ export function Dashboard() {
   const githubCloneCommands = registrationResult
     ? registrationResult.commands.github_clone_commands?.trim() || buildGithubCloneCommands(registerForm.installPath)
     : "";
+  const isLocalCenterUrl = registrationResult
+    ? /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(registrationResult.center_url)
+    : false;
 
   const loadNodes = async () => {
     setPageError("");
@@ -358,6 +362,7 @@ export function Dashboard() {
         node_name: registerForm.nodeName.trim(),
         address_hint: registerForm.addressHint.trim() || undefined,
         install_path: registerForm.installPath.trim(),
+        center_url: registerForm.centerUrl.trim() || undefined,
       });
       setRegistrationResult(result);
       setSelectedInstallPlan("python");
@@ -388,6 +393,7 @@ export function Dashboard() {
       nodeName: "",
       addressHint: "",
       installPath: "/opt/hbk-agent/HBK-Panel",
+      centerUrl: "",
     });
   };
 
@@ -824,7 +830,7 @@ export function Dashboard() {
               <div className="flex shrink-0 items-center justify-between border-b border-border/60 px-6 py-5">
               <div>
                 <div className="text-xl font-semibold text-slate-900">新增节点</div>
-                <div className="mt-1 text-sm text-muted-foreground">先完成中心注册，再去目标主机执行 Agent 启动命令。</div>
+                <div className="mt-1 text-sm text-muted-foreground">先完成中心注册，再去目标主机执行轻量 Agent 启动命令。</div>
               </div>
               <button
                 type="button"
@@ -875,10 +881,26 @@ export function Dashboard() {
                       className="h-11 w-full rounded-2xl border border-border/70 bg-white/80 px-4 text-sm outline-none transition focus:border-primary"
                     />
                   </label>
+                  <label className="space-y-2 md:col-span-2">
+                    <span className="text-sm font-medium text-slate-800">Agent 访问中心地址（可选）</span>
+                    <input
+                      value={registerForm.centerUrl}
+                      onChange={(event) => setRegisterForm((prev) => ({ ...prev, centerUrl: event.target.value }))}
+                      placeholder="例如：http://10.20.30.40:8000"
+                      className="h-11 w-full rounded-2xl border border-border/70 bg-white/80 px-4 text-sm outline-none transition focus:border-primary"
+                    />
+                    <div className="text-xs leading-6 text-muted-foreground">
+                      留空时会依次使用服务端 `HBK_PUBLIC_CENTER_URL` 和当前请求地址。若 agent 部署在其他主机或容器里，这里应填写它真正能访问到的中心地址。
+                    </div>
+                  </label>
                 </div>
 
                 <div className="rounded-[24px] bg-secondary/70 p-4 text-sm leading-7 text-slate-700">
-                  当前表单会直接注册节点并生成 token。节点注册后会立刻出现在左侧列表中，但在收到首次心跳前会显示为“异常”。
+                  当前表单会直接注册节点并生成 token，同时返回轻量 Agent 部署命令。节点注册后会立刻出现在左侧列表中，但在收到首次心跳前会显示为“异常”。
+                </div>
+
+                <div className="rounded-[24px] border border-primary/20 bg-white/80 p-4 text-sm leading-7 text-slate-700">
+                  如果 agent 运行在另一台服务器或容器里，不要让生成命令里的 `--center-url` 或 `HBK_CENTER_URL` 指向 `127.0.0.1` / `localhost`。请在上面的“Agent 访问中心地址”里填写远端真正可达的中心地址。
                 </div>
 
                 {registrationError ? (
@@ -891,7 +913,7 @@ export function Dashboard() {
                   </Button>
                   <Button type="submit" disabled={registering}>
                     <Plus className="h-4 w-4" />
-                    {registering ? "注册中..." : "生成 Token 与命令"}
+                    {registering ? "注册中..." : "生成轻量 Agent 命令"}
                   </Button>
                 </div>
               </form>
@@ -903,6 +925,11 @@ export function Dashboard() {
                 </div>
 
                 {copyMessage ? <div className="text-sm text-primary">{copyMessage}</div> : null}
+                {isLocalCenterUrl ? (
+                  <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-700">
+                    当前生成的中心地址是 `{registrationResult.center_url}`。这个地址只适用于当前本机；如果 agent 部署在其他服务器或容器里，请返回上一步填写“Agent 访问中心地址”，或在后端配置 `HBK_PUBLIC_CENTER_URL` 后重新生成命令。
+                  </div>
+                ) : null}
 
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="rounded-[24px] border border-border/70 bg-secondary/60 p-4">
@@ -943,7 +970,7 @@ export function Dashboard() {
                     <div className="rounded-[24px] border border-border/70 bg-white/70 p-4">
                       <div className="text-base font-semibold text-slate-900">方案 1：Python + systemd</div>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        适合直接把 Agent 作为宿主机进程运行，命令顺序建议为：GitHub 拉取 → 初始化依赖 → 启动 Agent 或写入 systemd。
+                        适合直接把 Agent 作为宿主机进程运行。初始化命令只安装 `requirements-agent.txt` 中的轻量依赖，不会带上中心端 FastAPI 和测试依赖。
                       </p>
                     </div>
 
@@ -966,8 +993,7 @@ export function Dashboard() {
                     <div className="rounded-[24px] border border-border/70 bg-white/70 p-4">
                       <div className="text-base font-semibold text-slate-900">方案 2：Docker Compose</div>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        `Dockerfile.agent` 和 `docker-compose.agent.yml` 已经放在仓库里。拉取代码后，
-                        只需要执行 `docker build` 和 `docker compose up` 即可启动。
+                        `Dockerfile.agent` 和 `docker-compose.agent.yml` 已经放在仓库里，镜像也只安装 `requirements-agent.txt` 中的轻量依赖。拉取代码后，只需要执行 `docker build` 和 `docker compose up` 即可启动。
                       </p>
                     </div>
 

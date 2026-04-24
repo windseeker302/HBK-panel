@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AnyHttpUrl, BaseModel, Field
 
 
 class ProbeInitiator(str, Enum):
@@ -30,16 +30,16 @@ class NodeAction(str, Enum):
 
 
 class CpuUsage(BaseModel):
-    percent: float = Field(ge=0, le=100, description="CPU 使用率")
-    logical_cores: int = Field(ge=1, description="逻辑核心数")
-    physical_cores: int | None = Field(default=None, description="物理核心数")
+    percent: float = Field(ge=0, le=100, description="CPU usage percent")
+    logical_cores: int = Field(ge=1, description="Logical CPU cores")
+    physical_cores: int | None = Field(default=None, description="Physical CPU cores")
 
 
 class MemoryUsage(BaseModel):
-    total_bytes: int = Field(ge=0, description="总内存")
-    used_bytes: int = Field(ge=0, description="已使用内存")
-    available_bytes: int = Field(ge=0, description="可用内存")
-    percent: float = Field(ge=0, le=100, description="内存使用率")
+    total_bytes: int = Field(ge=0, description="Total memory bytes")
+    used_bytes: int = Field(ge=0, description="Used memory bytes")
+    available_bytes: int = Field(ge=0, description="Available memory bytes")
+    percent: float = Field(ge=0, le=100, description="Memory usage percent")
 
 
 class ResourceMetrics(BaseModel):
@@ -112,10 +112,10 @@ class NodeContainersResponse(NodeRuntimeSnapshot):
 
 
 class AgentHeartbeatRequest(BaseModel):
-    request_id: str = Field(min_length=8, description="幂等请求 ID")
-    node_name: str = Field(min_length=1, description="节点展示名称")
-    address: str = Field(min_length=1, description="节点对外地址")
-    node_sampled_at: datetime = Field(description="节点本地采样时间")
+    request_id: str = Field(min_length=8, description="Idempotent request ID")
+    node_name: str = Field(min_length=1, description="Node display name")
+    address: str = Field(min_length=1, description="Node public address")
+    node_sampled_at: datetime = Field(description="Node sampled time")
     heartbeat_interval_seconds: int = Field(default=12, ge=10, le=15)
     offline_after_seconds: int = Field(default=35, ge=30, le=45)
     probe_initiator: ProbeInitiator = Field(default=ProbeInitiator.AGENT_SCHEDULER)
@@ -136,9 +136,9 @@ class AgentHeartbeatResponse(BaseModel):
 
 
 class CenterTaskCreateRequest(BaseModel):
-    idempotency_key: str = Field(min_length=8, description="任务幂等键")
-    task_type: str = Field(min_length=1, description="任务类型")
-    payload: dict[str, Any] = Field(default_factory=dict, description="任务参数")
+    idempotency_key: str = Field(min_length=8, description="Task idempotency key")
+    task_type: str = Field(min_length=1, description="Task type")
+    payload: dict[str, Any] = Field(default_factory=dict, description="Task payload")
     timeout_seconds: int = Field(default=15, ge=1, le=120)
 
 
@@ -170,11 +170,12 @@ class NodeRegistrationRequest(BaseModel):
         min_length=3,
         max_length=64,
         pattern=r"^[a-zA-Z0-9_-]+$",
-        description="节点唯一标识，只允许字母、数字、-、_",
+        description="Node unique identifier",
     )
-    node_name: str = Field(min_length=1, max_length=64, description="节点展示名称")
-    address_hint: str | None = Field(default=None, max_length=128, description="预期节点地址，可为空")
+    node_name: str = Field(min_length=1, max_length=64, description="Node display name")
+    address_hint: str | None = Field(default=None, max_length=128, description="Expected node address")
     install_path: str = Field(default="/opt/hbk-agent/HBK-Panel", min_length=1, max_length=256)
+    center_url: AnyHttpUrl | None = Field(default=None, description="Agent public center URL override")
 
 
 class AgentCommandBundle(BaseModel):

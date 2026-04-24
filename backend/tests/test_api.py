@@ -106,11 +106,51 @@ def test_register_node_returns_token_and_commands() -> None:
     assert 'cd "/opt/hbk-agent/HBK-Panel" && git pull --ff-only' in payload["commands"]["github_clone_commands"]
     assert "demo_agent.py" in payload["commands"]["run_command"]
     assert payload["commands"]["github_clone_commands"] in payload["commands"]["bootstrap_script"]
+    assert "pip install -r requirements-agent.txt" in payload["commands"]["bootstrap_script"]
     assert "systemctl enable --now hbk-agent-centos-prod-01" in payload["commands"]["systemd_enable_commands"]
     assert 'docker build -f Dockerfile.agent -t "hbk-agent:centos-prod-01" .' in payload["commands"]["docker_build_command"]
     assert 'HBK_AGENT_IMAGE="hbk-agent:centos-prod-01"' in payload["commands"]["docker_compose_up_command"]
     assert 'HBK_NODE_ADDRESS="${HBK_NODE_ADDRESS:-10.20.30.40}"' in payload["commands"]["docker_compose_up_command"]
     assert "docker compose -f docker-compose.agent.yml up -d" in payload["commands"]["docker_compose_up_command"]
+
+
+def test_register_node_uses_public_center_url_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("HBK_PUBLIC_CENTER_URL", "http://10.20.30.40:8000")
+    client = override_service(build_service())
+
+    response = client.post(
+        "/api/center/nodes/register",
+        json=NodeRegistrationRequest(
+            node_id="centos-prod-02",
+            node_name="CentOS 生产节点 02",
+        ).model_dump(mode="json"),
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["center_url"] == "http://10.20.30.40:8000"
+    assert '--center-url "http://10.20.30.40:8000"' in payload["commands"]["run_command"]
+    assert 'HBK_CENTER_URL="http://10.20.30.40:8000"' in payload["commands"]["docker_compose_up_command"]
+
+
+def test_register_node_request_center_url_overrides_env(monkeypatch) -> None:
+    monkeypatch.setenv("HBK_PUBLIC_CENTER_URL", "http://10.20.30.40:8000")
+    client = override_service(build_service())
+
+    response = client.post(
+        "/api/center/nodes/register",
+        json=NodeRegistrationRequest(
+            node_id="centos-prod-03",
+            node_name="CentOS 生产节点 03",
+            center_url="https://center.example.com:8443",
+        ).model_dump(mode="json"),
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["center_url"] == "https://center.example.com:8443"
+    assert '--center-url "https://center.example.com:8443"' in payload["commands"]["run_command"]
+    assert 'HBK_CENTER_URL="https://center.example.com:8443"' in payload["commands"]["docker_compose_up_command"]
 
 
 def test_duplicate_registration_returns_conflict() -> None:

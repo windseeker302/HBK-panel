@@ -102,6 +102,7 @@ export interface NodeRegistrationRequest {
   node_name: string;
   address_hint?: string;
   install_path?: string;
+  center_url?: string;
 }
 
 export interface AgentCommandBundle {
