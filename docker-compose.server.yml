@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
+      args:
+        PYTHON_BASE_IMAGE: ${HBK_PYTHON_BASE_IMAGE:-python:3.11-slim}
     container_name: ${HBK_SERVER_BACKEND_NAME:-hbk-center-api}
     restart: always
     environment:
@@ -27,6 +29,8 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
+        NODE_BASE_IMAGE: ${HBK_NODE_BASE_IMAGE:-node:20-alpine}
+        NGINX_BASE_IMAGE: ${HBK_NGINX_BASE_IMAGE:-nginx:1.27-alpine}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/}
     container_name: ${HBK_SERVER_FRONTEND_NAME:-hbk-center-web}
     restart: always

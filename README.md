@@ -99,6 +99,22 @@ cp .env.server.example .env
 - `HBK_SERVER_PORT`
   - 前端和 `/api` 对外暴露的端口，默认 `80`
 
+如果这台服务器拉不到 Docker Hub，还可以把基础镜像改成你能访问到的镜像仓库地址：
+
+- `HBK_PYTHON_BASE_IMAGE`
+- `HBK_NODE_BASE_IMAGE`
+- `HBK_NGINX_BASE_IMAGE`
+
+默认值分别是：
+
+```env
+HBK_PYTHON_BASE_IMAGE=python:3.11-slim
+HBK_NODE_BASE_IMAGE=node:20-alpine
+HBK_NGINX_BASE_IMAGE=nginx:1.27-alpine
+```
+
+例如你已经有私有镜像仓库或云厂商镜像仓库时，可以直接改成完整镜像名；这样 `docker compose build` 时就不会再去访问默认的 Docker Hub 地址。
+
 启动命令：
 
 ```bash
