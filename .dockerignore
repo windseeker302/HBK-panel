@@ -2,8 +2,6 @@
 .gitignore
 .playwright-mcp
 .run
-README.md
-frontend
 backend/.venv
 backend/.pytest_cache
 backend/.mypy_cache
@@ -12,7 +10,6 @@ backend/app/__pycache__
 backend/app/api/__pycache__
 backend/app/models/__pycache__
 backend/app/services/__pycache__
-backend/tests
 backend/tests/__pycache__
 frontend/node_modules
 frontend/dist
