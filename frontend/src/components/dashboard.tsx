@@ -2,6 +2,8 @@ import { type FormEvent, useEffect, useState, useTransition } from "react";
 import {
   Activity,
   Boxes,
+  ChevronDown,
+  ChevronUp,
   ClipboardCopy,
   Cpu,
   HardDrive,
@@ -166,6 +168,34 @@ function CommandBlock({ title, value, onCopy }: CommandBlockProps) {
 }
 
 type InstallPlan = "python" | "docker";
+type LoadOptions = {
+  silent?: boolean;
+};
+type SectionKey = "nodeList" | "timeline" | "cpu" | "memory" | "containers" | "rules" | "lifecycle";
+
+const DEFAULT_COLLAPSED_SECTIONS: Record<SectionKey, boolean> = {
+  nodeList: false,
+  timeline: false,
+  cpu: false,
+  memory: false,
+  containers: false,
+  rules: true,
+  lifecycle: true,
+};
+
+interface SectionToggleButtonProps {
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+function SectionToggleButton({ collapsed, onToggle }: SectionToggleButtonProps) {
+  return (
+    <Button type="button" variant="ghost" size="sm" onClick={onToggle} aria-expanded={!collapsed}>
+      {collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+      {collapsed ? "展开" : "收起"}
+    </Button>
+  );
+}
 
 export function Dashboard() {
   const [nodes, setNodes] = useState<NodeListItem[]>([]);
@@ -178,6 +208,9 @@ export function Dashboard() {
   const [actionMessage, setActionMessage] = useState("");
   const [hostsLoading, setHostsLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [hostsRefreshing, setHostsRefreshing] = useState(false);
+  const [detailRefreshing, setDetailRefreshing] = useState(false);
+  const [hasLoadedNodesOnce, setHasLoadedNodesOnce] = useState(false);
   const [taskLoading, setTaskLoading] = useState(false);
   const [nodeActionLoading, setNodeActionLoading] = useState(false);
   const [registering, setRegistering] = useState(false);
@@ -187,6 +220,7 @@ export function Dashboard() {
   const [selectedInstallPlan, setSelectedInstallPlan] = useState<InstallPlan>("python");
   const [copyMessage, setCopyMessage] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>(DEFAULT_COLLAPSED_SECTIONS);
   const [registerForm, setRegisterForm] = useState({
     nodeId: "",
     nodeName: "",
@@ -197,20 +231,37 @@ export function Dashboard() {
 
   const currentNode = nodes.find((item) => item.node_id === selectedNodeId) ?? null;
   const totalPending = nodes.reduce((sum, item) => sum + item.pending_tasks, 0);
+  const onlineNodeCount = nodes.filter((item) => item.status === "online").length;
+  const abnormalNodeCount = nodes.length - onlineNodeCount;
   const githubCloneCommands = registrationResult
     ? registrationResult.commands.github_clone_commands?.trim() || buildGithubCloneCommands(registerForm.installPath)
     : "";
   const isLocalCenterUrl = registrationResult
     ? /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?(\/|$)/i.test(registrationResult.center_url)
     : false;
+  const isRefreshing = hostsRefreshing || detailRefreshing;
+  const refreshDisabled = hostsLoading || detailLoading || isRefreshing || isPending;
+  const toggleSection = (section: SectionKey) => {
+    setCollapsedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
 
-  const loadNodes = async () => {
-    setPageError("");
-    setHostsLoading(true);
+  const loadNodes = async ({ silent = false }: LoadOptions = {}) => {
+    const useBlockingLoading = !silent && !hasLoadedNodesOnce;
+
+    if (useBlockingLoading) {
+      setHostsLoading(true);
+    } else {
+      setHostsRefreshing(true);
+    }
 
     try {
       const data = await fetchNodes();
+      setPageError("");
       setNodes(data.items);
+      setHasLoadedNodesOnce(true);
       startTransition(() => {
         setSelectedNodeId((prev) => {
           if (prev && data.items.some((item) => item.node_id === prev)) {
@@ -222,13 +273,26 @@ export function Dashboard() {
     } catch (error) {
       setPageError(error instanceof Error ? error.message : "加载节点列表失败");
     } finally {
-      setHostsLoading(false);
+      if (useBlockingLoading) {
+        setHostsLoading(false);
+      } else {
+        setHostsRefreshing(false);
+      }
     }
   };
 
-  const loadNodeDetail = async (nodeId: string) => {
-    setDetailError("");
-    setDetailLoading(true);
+  const loadNodeDetail = async (nodeId: string, { silent = false }: LoadOptions = {}) => {
+    const hasCurrentNodeDetail =
+      overview?.node_id === nodeId &&
+      metrics?.node_id === nodeId &&
+      containerData?.node_id === nodeId;
+    const useBlockingLoading = !silent || !hasCurrentNodeDetail;
+
+    if (useBlockingLoading) {
+      setDetailLoading(true);
+    } else {
+      setDetailRefreshing(true);
+    }
 
     try {
       const [overviewResponse, metricsResponse, containerResponse] = await Promise.all([
@@ -236,16 +300,23 @@ export function Dashboard() {
         fetchNodeMetrics(nodeId),
         fetchNodeContainers(nodeId),
       ]);
+      setDetailError("");
       setOverview(overviewResponse);
       setMetrics(metricsResponse);
       setContainerData(containerResponse);
     } catch (error) {
-      setOverview(null);
-      setMetrics(null);
-      setContainerData(null);
+      if (useBlockingLoading) {
+        setOverview(null);
+        setMetrics(null);
+        setContainerData(null);
+      }
       setDetailError(error instanceof Error ? error.message : "加载节点详情失败");
     } finally {
-      setDetailLoading(false);
+      if (useBlockingLoading) {
+        setDetailLoading(false);
+      } else {
+        setDetailRefreshing(false);
+      }
     }
   };
 
@@ -262,9 +333,9 @@ export function Dashboard() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      void loadNodes();
+      void loadNodes({ silent: true });
       if (selectedNodeId) {
-        void loadNodeDetail(selectedNodeId);
+        void loadNodeDetail(selectedNodeId, { silent: true });
       }
     }, 10000);
 
@@ -429,14 +500,14 @@ export function Dashboard() {
               <Button
                 variant="default"
                 onClick={() => {
-                  void loadNodes();
+                  void loadNodes({ silent: true });
                   if (selectedNodeId) {
-                    void loadNodeDetail(selectedNodeId);
+                    void loadNodeDetail(selectedNodeId, { silent: true });
                   }
                 }}
-                disabled={hostsLoading || detailLoading || isPending}
+                disabled={refreshDisabled}
               >
-                <RefreshCw className={`h-4 w-4 ${(hostsLoading || detailLoading || isPending) ? "animate-spin" : ""}`} />
+                <RefreshCw className={`h-4 w-4 ${refreshDisabled ? "animate-spin" : ""}`} />
                 刷新
               </Button>
             </div>
@@ -457,7 +528,7 @@ export function Dashboard() {
             <CardContent className="flex items-center justify-between p-6">
               <div>
                 <div className="text-sm text-muted-foreground">在线节点</div>
-                <div className="mt-2 text-3xl font-semibold">{nodes.filter((item) => item.status === "online").length}</div>
+                <div className="mt-2 text-3xl font-semibold">{onlineNodeCount}</div>
               </div>
               <Activity className="h-8 w-8 text-emerald-600" />
             </CardContent>
@@ -466,7 +537,7 @@ export function Dashboard() {
             <CardContent className="flex items-center justify-between p-6">
               <div>
                 <div className="text-sm text-muted-foreground">异常节点</div>
-                <div className="mt-2 text-3xl font-semibold">{nodes.filter((item) => item.status === "abnormal").length}</div>
+                <div className="mt-2 text-3xl font-semibold">{abnormalNodeCount}</div>
               </div>
               <TimerReset className="h-8 w-8 text-rose-600" />
             </CardContent>
@@ -497,15 +568,24 @@ export function Dashboard() {
           </Card>
         ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="grid items-start gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
           <Card className="animate-floatUp">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Server className="h-5 w-5 text-primary" />
-                节点列表
-              </CardTitle>
-              <CardDescription>展示心跳状态、采样时间和容器运行概况。</CardDescription>
+            <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-2">
+                <CardTitle className="flex items-center gap-2">
+                  <Server className="h-5 w-5 text-primary" />
+                  节点列表
+                </CardTitle>
+                <CardDescription>
+                  {collapsedSections.nodeList ? `共 ${nodes.length} 个节点，在线 ${onlineNodeCount} 个，异常 ${abnormalNodeCount} 个。` : "展示心跳状态、采样时间和容器运行概况。"}
+                </CardDescription>
+              </div>
+              <SectionToggleButton
+                collapsed={collapsedSections.nodeList}
+                onToggle={() => toggleSection("nodeList")}
+              />
             </CardHeader>
+            {!collapsedSections.nodeList ? (
             <CardContent className="space-y-3">
               {hostsLoading ? (
                 <div className="rounded-3xl border border-dashed border-border/70 p-6 text-sm text-muted-foreground">
@@ -546,6 +626,7 @@ export function Dashboard() {
                 );
               })}
             </CardContent>
+            ) : null}
           </Card>
 
           <div className="space-y-6">
@@ -556,9 +637,17 @@ export function Dashboard() {
                     <ShieldCheck className="h-5 w-5 text-primary" />
                     节点时序与通信语义
                   </CardTitle>
-                  <CardDescription>{currentNode ? `当前查看节点：${currentNode.node_name}` : "请选择节点"}</CardDescription>
+                  <CardDescription>
+                    {collapsedSections.timeline
+                      ? (currentNode ? `当前查看 ${currentNode.node_name}，最近收包 ${formatTime(overview?.server_received_at ?? null)}` : "请选择节点")
+                      : (currentNode ? `当前查看节点：${currentNode.node_name}` : "请选择节点")}
+                  </CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-3">
+                  <SectionToggleButton
+                    collapsed={collapsedSections.timeline}
+                    onToggle={() => toggleSection("timeline")}
+                  />
                   <Button variant="outline" onClick={handleDispatchTask} disabled={!selectedNodeId || taskLoading}>
                     <Send className={`h-4 w-4 ${taskLoading ? "animate-pulse" : ""}`} />
                     下发采样任务
@@ -582,6 +671,7 @@ export function Dashboard() {
                   </Button>
                 </div>
               </CardHeader>
+              {!collapsedSections.timeline ? (
               <CardContent className="grid gap-3 md:grid-cols-3">
                 <div className="rounded-[22px] bg-secondary/80 p-4">
                   <div className="text-sm text-muted-foreground">Agent 时间</div>
@@ -601,17 +691,29 @@ export function Dashboard() {
                   </p>
                 </div>
               </CardContent>
+              ) : null}
             </Card>
 
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid items-start gap-6 md:grid-cols-2">
               <Card className="animate-floatUp">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Cpu className="h-5 w-5 text-primary" />
-                    CPU 使用率
-                  </CardTitle>
-                  <CardDescription>{currentNode ? `${currentNode.node_name} 的 CPU 实时概况` : "请选择节点"}</CardDescription>
+                <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <CardTitle className="flex items-center gap-2">
+                      <Cpu className="h-5 w-5 text-primary" />
+                      CPU 使用率
+                    </CardTitle>
+                    <CardDescription>
+                      {collapsedSections.cpu
+                        ? `当前 ${metrics?.metrics ? `${metrics.metrics.cpu.percent.toFixed(1)}%` : "--"}`
+                        : (currentNode ? `${currentNode.node_name} 的 CPU 实时概况` : "请选择节点")}
+                    </CardDescription>
+                  </div>
+                  <SectionToggleButton
+                    collapsed={collapsedSections.cpu}
+                    onToggle={() => toggleSection("cpu")}
+                  />
                 </CardHeader>
+                {!collapsedSections.cpu ? (
                 <CardContent className="space-y-6">
                   <div>
                     <div className="mb-2 flex items-end justify-between">
@@ -633,16 +735,28 @@ export function Dashboard() {
                     </div>
                   </div>
                 </CardContent>
+                ) : null}
               </Card>
 
               <Card className="animate-floatUp">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <HardDrive className="h-5 w-5 text-primary" />
-                    内存使用率
-                  </CardTitle>
-                  <CardDescription>显示总量、已用和可用内存。</CardDescription>
+                <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <CardTitle className="flex items-center gap-2">
+                      <HardDrive className="h-5 w-5 text-primary" />
+                      内存使用率
+                    </CardTitle>
+                    <CardDescription>
+                      {collapsedSections.memory
+                        ? `当前 ${metrics?.metrics ? `${metrics.metrics.memory.percent.toFixed(1)}%` : "--"}`
+                        : "显示总量、已用和可用内存。"}
+                    </CardDescription>
+                  </div>
+                  <SectionToggleButton
+                    collapsed={collapsedSections.memory}
+                    onToggle={() => toggleSection("memory")}
+                  />
                 </CardHeader>
+                {!collapsedSections.memory ? (
                 <CardContent className="space-y-6">
                   <div>
                     <div className="mb-2 flex items-end justify-between">
@@ -674,6 +788,7 @@ export function Dashboard() {
                     </div>
                   </div>
                 </CardContent>
+                ) : null}
               </Card>
             </div>
 
@@ -691,6 +806,10 @@ export function Dashboard() {
                   </CardDescription>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <SectionToggleButton
+                    collapsed={collapsedSections.containers}
+                    onToggle={() => toggleSection("containers")}
+                  />
                   {summaryBadges(containerData).map((item) => (
                     <Badge key={item.label} variant={item.variant}>
                       {item.label} {item.value}
@@ -698,6 +817,7 @@ export function Dashboard() {
                   ))}
                 </div>
               </CardHeader>
+              {!collapsedSections.containers ? (
               <CardContent className="space-y-4">
                 {detailError ? (
                   <div className="rounded-[24px] border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{detailError}</div>
@@ -765,17 +885,27 @@ export function Dashboard() {
                   </Table>
                 ) : null}
               </CardContent>
+              ) : null}
             </Card>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid items-start gap-6 lg:grid-cols-2">
               <Card className="animate-floatUp">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="h-5 w-5 text-primary" />
-                    通信规则
-                  </CardTitle>
-                  <CardDescription>页面直接映射轻量监控集群的核心约束。</CardDescription>
+                <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5 text-primary" />
+                      通信规则
+                    </CardTitle>
+                    <CardDescription>
+                      {collapsedSections.rules ? "保留心跳、离线判定、认证与幂等约束摘要。" : "页面直接映射轻量监控集群的核心约束。"}
+                    </CardDescription>
+                  </div>
+                  <SectionToggleButton
+                    collapsed={collapsedSections.rules}
+                    onToggle={() => toggleSection("rules")}
+                  />
                 </CardHeader>
+                {!collapsedSections.rules ? (
                 <CardContent className="grid gap-3">
                   <div className="rounded-[22px] bg-secondary/80 p-4 text-sm leading-7 text-slate-700">
                     Agent 以 10~15 秒心跳主动推送，中心 30~45 秒未收到即标记节点异常。
@@ -787,16 +917,26 @@ export function Dashboard() {
                     Agent 侧采用超时、重试、退避与 request_id 幂等键，中心下发任务支持 idempotency_key 去重。
                   </div>
                 </CardContent>
+                ) : null}
               </Card>
 
               <Card className="animate-floatUp">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Send className="h-5 w-5 text-primary" />
-                    节点生命周期
-                  </CardTitle>
-                  <CardDescription>现在支持“清理状态”和“注销节点”两种动作。</CardDescription>
+                <CardHeader className="gap-4 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <CardTitle className="flex items-center gap-2">
+                      <Send className="h-5 w-5 text-primary" />
+                      节点生命周期
+                    </CardTitle>
+                    <CardDescription>
+                      {collapsedSections.lifecycle ? "支持清理运行态和真正注销节点两种动作。" : "现在支持“清理状态”和“注销节点”两种动作。"}
+                    </CardDescription>
+                  </div>
+                  <SectionToggleButton
+                    collapsed={collapsedSections.lifecycle}
+                    onToggle={() => toggleSection("lifecycle")}
+                  />
                 </CardHeader>
+                {!collapsedSections.lifecycle ? (
                 <CardContent className="grid gap-3">
                   <div className="rounded-[22px] bg-secondary/80 p-4">
                     <div className="font-medium text-slate-900">POST /api/center/nodes/{`{id}`}/clear-state</div>
@@ -817,6 +957,7 @@ export function Dashboard() {
                     </p>
                   </div>
                 </CardContent>
+                ) : null}
               </Card>
             </div>
           </div>
